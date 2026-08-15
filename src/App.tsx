@@ -5,7 +5,6 @@ import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile } from "@ffmpeg/util";
 
 type ImageFormat = "PNG" | "JPG" | "WEBP" | "PDF";
-
 type FileType = "image" | "video";
 
 interface ImageInfo {
@@ -31,10 +30,11 @@ function App() {
   const [dragging, setDragging] = useState(false);
   const [converting, setConverting] = useState(false);
   const [imageInfo, setImageInfo] = useState<ImageInfo | null>(null);
-  const [converted, setConverted] = useState<ConvertedFile | null>(null);
+  const [converted, setConverted] =
+    useState<ConvertedFile | null>(null);
 
   useEffect(() => {
-    const loadFFmpeg = async () => {
+    async function loadFFmpeg() {
       try {
         const ffmpeg = ffmpegRef.current;
 
@@ -47,7 +47,7 @@ function App() {
         console.error("Erro ao carregar FFmpeg:", error);
         alert("Não foi possível carregar o conversor de vídeo.");
       }
-    };
+    }
 
     loadFFmpeg();
   }, []);
@@ -97,7 +97,9 @@ function App() {
     selectFile(event.target.files?.[0]);
   }
 
-  function handleDrop(event: React.DragEvent<HTMLDivElement>) {
+  function handleDrop(
+    event: React.DragEvent<HTMLDivElement>
+  ) {
     event.preventDefault();
     setDragging(false);
 
@@ -135,6 +137,7 @@ function App() {
        * VÍDEO → MP3
        * =========================
        */
+
       if (fileType === "video") {
         if (!ffmpegLoaded) {
           throw new Error("FFmpeg ainda não foi carregado.");
@@ -160,18 +163,44 @@ function App() {
           outputName,
         ]);
 
-        const outputData = await ffmpeg.readFile(outputName);
+        const outputData =
+          await ffmpeg.readFile(outputName);
+
+        /*
+         * Converte o resultado do FFmpeg
+         * para um ArrayBuffer compatível
+         * com o Blob do TypeScript.
+         */
+
+        let audioBuffer: ArrayBuffer;
+
+        if (typeof outputData === "string") {
+          audioBuffer = new TextEncoder()
+            .encode(outputData)
+            .buffer;
+        } else {
+          const audioBytes = new Uint8Array(outputData);
+          const buffer = new ArrayBuffer(
+            audioBytes.byteLength
+          );
+
+          new Uint8Array(buffer).set(audioBytes);
+
+          audioBuffer = buffer;
+        }
 
         const audioBlob = new Blob(
-          [new Uint8Array(outputData)],
+          [audioBuffer],
           {
             type: "audio/mpeg",
           }
         );
 
-        const url = URL.createObjectURL(audioBlob);
+        const url =
+          URL.createObjectURL(audioBlob);
 
-        const originalName = removeExtension(file.name);
+        const originalName =
+          removeExtension(file.name);
 
         setConverted({
           blob: audioBlob,
@@ -199,11 +228,16 @@ function App() {
       if (format === "PDF") {
         blob = createPdfFromImage(image);
       } else {
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d");
+        const canvas =
+          document.createElement("canvas");
+
+        const context =
+          canvas.getContext("2d");
 
         if (!context) {
-          throw new Error("Não foi possível criar o canvas.");
+          throw new Error(
+            "Não foi possível criar o canvas."
+          );
         }
 
         canvas.width = image.naturalWidth;
@@ -211,6 +245,7 @@ function App() {
 
         if (format === "JPG") {
           context.fillStyle = "#ffffff";
+
           context.fillRect(
             0,
             0,
@@ -229,7 +264,9 @@ function App() {
               : "image/webp";
 
         const quality =
-          format === "PNG" ? undefined : 0.92;
+          format === "PNG"
+            ? undefined
+            : 0.92;
 
         blob = await canvasToBlob(
           canvas,
@@ -238,13 +275,17 @@ function App() {
         );
       }
 
-      const url = URL.createObjectURL(blob);
+      const url =
+        URL.createObjectURL(blob);
 
       const convertedFile: ConvertedFile = {
         blob,
         url,
         size: blob.size,
-        name: createFileName(file.name, format),
+        name: createFileName(
+          file.name,
+          format
+        ),
       };
 
       setConverted(convertedFile);
@@ -268,7 +309,8 @@ function App() {
   function downloadConverted() {
     if (!converted) return;
 
-    const link = document.createElement("a");
+    const link =
+      document.createElement("a");
 
     link.href = converted.url;
     link.download = converted.name;
@@ -342,9 +384,13 @@ function App() {
               event.preventDefault();
               setDragging(true);
             }}
-            onDragLeave={() => setDragging(false)}
+            onDragLeave={() =>
+              setDragging(false)
+            }
             onDrop={handleDrop}
-            onClick={() => fileInput.current?.click()}
+            onClick={() =>
+              fileInput.current?.click()
+            }
           >
             <input
               ref={fileInput}
@@ -354,7 +400,9 @@ function App() {
               onChange={handleFileChange}
             />
 
-            <div className="upload-icon">↑</div>
+            <div className="upload-icon">
+              ↑
+            </div>
 
             <h2>
               Arraste seu arquivo aqui
@@ -372,7 +420,9 @@ function App() {
           <div className="workspace">
             <div className="preview-card">
               <div className="preview-header">
-                <span>Visualização</span>
+                <span>
+                  Visualização
+                </span>
 
                 <button
                   className="change-button"
@@ -412,7 +462,9 @@ function App() {
                 </div>
 
                 <div className="file-info">
-                  <strong>{file.name}</strong>
+                  <strong>
+                    {file.name}
+                  </strong>
 
                   <span>
                     {formatFileSize(file.size)}
@@ -436,7 +488,9 @@ function App() {
                     <span>ORIGINAL</span>
 
                     <strong>
-                      {getFileExtension(file.name)}
+                      {getFileExtension(
+                        file.name
+                      )}
                     </strong>
                   </div>
 
@@ -445,7 +499,9 @@ function App() {
                   </div>
 
                   <div className="format-box">
-                    <span>CONVERTER PARA</span>
+                    <span>
+                      CONVERTER PARA
+                    </span>
 
                     <select
                       value={format}
@@ -480,7 +536,9 @@ function App() {
                     <span>ORIGINAL</span>
 
                     <strong>
-                      {getFileExtension(file.name)}
+                      {getFileExtension(
+                        file.name
+                      )}
                     </strong>
                   </div>
 
@@ -489,7 +547,9 @@ function App() {
                   </div>
 
                   <div className="format-box">
-                    <span>CONVERTER PARA</span>
+                    <span>
+                      CONVERTER PARA
+                    </span>
 
                     <strong>MP3</strong>
                   </div>
@@ -539,14 +599,18 @@ function App() {
                   <div className="result-actions">
                     <button
                       className="secondary-button"
-                      onClick={resetConversion}
+                      onClick={
+                        resetConversion
+                      }
                     >
                       Converter novamente
                     </button>
 
                     <button
                       className="download-button"
-                      onClick={downloadConverted}
+                      onClick={
+                        downloadConverted
+                      }
                     >
                       Baixar arquivo
                       <span>↓</span>
