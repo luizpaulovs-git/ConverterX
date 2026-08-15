@@ -1,8 +1,12 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import jsPDF from "jspdf";
+import { FFmpeg } from "@ffmpeg/ffmpeg";
+import { fetchFile } from "@ffmpeg/util";
 
 type ImageFormat = "PNG" | "JPG" | "WEBP" | "PDF";
+
+type FileType = "image" | "video";
 
 interface ImageInfo {
   width: number;
@@ -18,19 +22,44 @@ interface ConvertedFile {
 
 function App() {
   const fileInput = useRef<HTMLInputElement>(null);
+  const ffmpegRef = useRef(new FFmpeg());
 
+  const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [fileType, setFileType] = useState<FileType | null>(null);
   const [format, setFormat] = useState<ImageFormat>("PNG");
   const [dragging, setDragging] = useState(false);
   const [converting, setConverting] = useState(false);
   const [imageInfo, setImageInfo] = useState<ImageInfo | null>(null);
   const [converted, setConverted] = useState<ConvertedFile | null>(null);
 
+  useEffect(() => {
+    const loadFFmpeg = async () => {
+      try {
+        const ffmpeg = ffmpegRef.current;
+
+        if (!ffmpeg.loaded) {
+          await ffmpeg.load();
+        }
+
+        setFfmpegLoaded(true);
+      } catch (error) {
+        console.error("Erro ao carregar FFmpeg:", error);
+        alert("Não foi possível carregar o conversor de vídeo.");
+      }
+    };
+
+    loadFFmpeg();
+  }, []);
+
   function selectFile(selectedFile: File | undefined) {
     if (!selectedFile) return;
 
-    if (!selectedFile.type.startsWith("image/")) {
-      alert("Por enquanto, o ConverterX aceita apenas imagens.");
+    const isImage = selectedFile.type.startsWith("image/");
+    const isVideo = selectedFile.type.startsWith("video/");
+
+    if (!isImage && !isVideo) {
+      alert("Formato de arquivo não suportado.");
       return;
     }
 
@@ -40,6 +69,14 @@ function App() {
 
     setFile(selectedFile);
     setConverted(null);
+    setImageInfo(null);
+
+    if (isVideo) {
+      setFileType("video");
+      return;
+    }
+
+    setFileType("image");
 
     loadImage(selectedFile)
       .then((image) => {
@@ -54,7 +91,9 @@ function App() {
       });
   }
 
-  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileChange(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
     selectFile(event.target.files?.[0]);
   }
 
@@ -71,6 +110,7 @@ function App() {
     }
 
     setFile(null);
+    setFileType(null);
     setImageInfo(null);
     setConverted(null);
 
@@ -80,7 +120,7 @@ function App() {
   }
 
   async function convertFile() {
-    if (!file) return;
+    if (!file || !fileType) return;
 
     try {
       setConverting(true);
@@ -89,6 +129,68 @@ function App() {
         URL.revokeObjectURL(converted.url);
         setConverted(null);
       }
+
+      /*
+       * =========================
+       * VÍDEO → MP3
+       * =========================
+       */
+      if (fileType === "video") {
+        if (!ffmpegLoaded) {
+          throw new Error("FFmpeg ainda não foi carregado.");
+        }
+
+        const ffmpeg = ffmpegRef.current;
+
+        const inputName = "input-video";
+        const outputName = "output.mp3";
+
+        const inputData = await fetchFile(file);
+
+        await ffmpeg.writeFile(inputName, inputData);
+
+        await ffmpeg.exec([
+          "-i",
+          inputName,
+          "-vn",
+          "-acodec",
+          "libmp3lame",
+          "-q:a",
+          "2",
+          outputName,
+        ]);
+
+        const outputData = await ffmpeg.readFile(outputName);
+
+        const audioBlob = new Blob(
+          [new Uint8Array(outputData)],
+          {
+            type: "audio/mpeg",
+          }
+        );
+
+        const url = URL.createObjectURL(audioBlob);
+
+        const originalName = removeExtension(file.name);
+
+        setConverted({
+          blob: audioBlob,
+          url,
+          size: audioBlob.size,
+          name: `${originalName}-audio.mp3`,
+        });
+
+        await ffmpeg.deleteFile(inputName);
+        await ffmpeg.deleteFile(outputName);
+
+        return;
+      }
+
+      /*
+       * =========================
+       * IMAGEM
+       * =========================
+       */
 
       const image = await loadImage(file);
 
@@ -109,7 +211,12 @@ function App() {
 
         if (format === "JPG") {
           context.fillStyle = "#ffffff";
-          context.fillRect(0, 0, canvas.width, canvas.height);
+          context.fillRect(
+            0,
+            0,
+            canvas.width,
+            canvas.height
+          );
         }
 
         context.drawImage(image, 0, 0);
@@ -121,9 +228,14 @@ function App() {
               ? "image/jpeg"
               : "image/webp";
 
-        const quality = format === "PNG" ? undefined : 0.92;
+        const quality =
+          format === "PNG" ? undefined : 0.92;
 
-        blob = await canvasToBlob(canvas, mimeType, quality);
+        blob = await canvasToBlob(
+          canvas,
+          mimeType,
+          quality
+        );
       }
 
       const url = URL.createObjectURL(blob);
@@ -138,7 +250,16 @@ function App() {
       setConverted(convertedFile);
     } catch (error) {
       console.error(error);
-      alert("Ocorreu um erro ao converter a imagem.");
+
+      if (fileType === "video") {
+        alert(
+          "Ocorreu um erro ao converter o vídeo para MP3."
+        );
+      } else {
+        alert(
+          "Ocorreu um erro ao converter a imagem."
+        );
+      }
     } finally {
       setConverting(false);
     }
@@ -163,6 +284,23 @@ function App() {
     }
 
     setConverted(null);
+  }
+
+  if (!ffmpegLoaded) {
+    return (
+      <main className="app">
+        <div
+          style={{
+            minHeight: "100vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          Carregando conversor...
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -190,7 +328,7 @@ function App() {
         </h1>
 
         <p>
-          Converta imagens diretamente no navegador.
+          Converta imagens e vídeos diretamente no navegador.
         </p>
       </section>
 
@@ -211,21 +349,23 @@ function App() {
             <input
               ref={fileInput}
               type="file"
-              accept="image/png,image/jpeg,image/webp"
+              accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime"
               hidden
               onChange={handleFileChange}
             />
 
             <div className="upload-icon">↑</div>
 
-            <h2>Arraste sua imagem aqui</h2>
+            <h2>
+              Arraste seu arquivo aqui
+            </h2>
 
             <p>
-              ou clique para selecionar uma imagem
+              ou clique para selecionar um arquivo
             </p>
 
             <span className="formats">
-              PNG • JPG • WEBP
+              PNG • JPG • WEBP • MP4 • WEBM • MOV
             </span>
           </div>
         ) : (
@@ -240,22 +380,35 @@ function App() {
                     fileInput.current?.click()
                   }
                 >
-                  Trocar imagem
+                  Trocar arquivo
                 </button>
               </div>
 
               <div className="preview">
-                <img
-                  src={URL.createObjectURL(file)}
-                  alt="Pré-visualização"
-                />
+                {fileType === "image" ? (
+                  <img
+                    src={URL.createObjectURL(file)}
+                    alt="Pré-visualização"
+                  />
+                ) : (
+                  <video
+                    src={URL.createObjectURL(file)}
+                    controls
+                    style={{
+                      maxWidth: "100%",
+                      maxHeight: "400px",
+                    }}
+                  />
+                )}
               </div>
             </div>
 
             <div className="file-card">
               <div className="file-main">
                 <div className="file-icon">
-                  ✓
+                  {fileType === "video"
+                    ? "▶"
+                    : "✓"}
                 </div>
 
                 <div className="file-info">
@@ -263,6 +416,7 @@ function App() {
 
                   <span>
                     {formatFileSize(file.size)}
+
                     {imageInfo &&
                       ` • ${imageInfo.width} × ${imageInfo.height}px`}
                   </span>
@@ -276,48 +430,71 @@ function App() {
                 </button>
               </div>
 
-              <div className="conversion-flow">
-                <div className="format-box">
-                  <span>ORIGINAL</span>
-                  <strong>
-                    {getFileExtension(file.name)}
-                  </strong>
+              {fileType === "image" ? (
+                <div className="conversion-flow">
+                  <div className="format-box">
+                    <span>ORIGINAL</span>
+
+                    <strong>
+                      {getFileExtension(file.name)}
+                    </strong>
+                  </div>
+
+                  <div className="arrow">
+                    →
+                  </div>
+
+                  <div className="format-box">
+                    <span>CONVERTER PARA</span>
+
+                    <select
+                      value={format}
+                      onChange={(event) =>
+                        setFormat(
+                          event.target
+                            .value as ImageFormat
+                        )
+                      }
+                    >
+                      <option value="PNG">
+                        PNG
+                      </option>
+
+                      <option value="JPG">
+                        JPG
+                      </option>
+
+                      <option value="WEBP">
+                        WEBP
+                      </option>
+
+                      <option value="PDF">
+                        PDF
+                      </option>
+                    </select>
+                  </div>
                 </div>
+              ) : (
+                <div className="conversion-flow">
+                  <div className="format-box">
+                    <span>ORIGINAL</span>
 
-                <div className="arrow">
-                  →
+                    <strong>
+                      {getFileExtension(file.name)}
+                    </strong>
+                  </div>
+
+                  <div className="arrow">
+                    →
+                  </div>
+
+                  <div className="format-box">
+                    <span>CONVERTER PARA</span>
+
+                    <strong>MP3</strong>
+                  </div>
                 </div>
-
-                <div className="format-box">
-                  <span>CONVERTER PARA</span>
-
-                  <select
-                    value={format}
-                    onChange={(event) =>
-                      setFormat(
-                        event.target
-                          .value as ImageFormat
-                      )
-                    }
-                  >
-                    <option value="PNG">
-                      PNG
-                    </option>
-
-                    <option value="JPG">
-                      JPG
-                    </option>
-
-                    <option value="WEBP">
-                      WEBP
-                    </option>
-
-                    <option value="PDF">
-                      PDF
-                    </option>
-                  </select>
-                </div>
-              </div>
+              )}
 
               {!converted ? (
                 <button
@@ -327,7 +504,9 @@ function App() {
                 >
                   {converting
                     ? "Convertendo..."
-                    : "Converter imagem"}
+                    : fileType === "video"
+                      ? "Extrair áudio"
+                      : "Converter imagem"}
 
                   {!converting && (
                     <span>→</span>
@@ -383,7 +562,7 @@ function App() {
           <input
             ref={fileInput}
             type="file"
-            accept="image/png,image/jpeg,image/webp"
+            accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime"
             hidden
             onChange={handleFileChange}
           />
@@ -401,10 +580,16 @@ function App() {
   );
 }
 
-function createPdfFromImage(image: HTMLImageElement): Blob {
+function createPdfFromImage(
+  image: HTMLImageElement
+): Blob {
   const width = image.naturalWidth;
   const height = image.naturalHeight;
-  const orientation = width > height ? "landscape" : "portrait";
+
+  const orientation =
+    width > height
+      ? "landscape"
+      : "portrait";
 
   const pdf = new jsPDF({
     orientation,
@@ -413,40 +598,78 @@ function createPdfFromImage(image: HTMLImageElement): Blob {
     compress: true,
   });
 
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
+  const pageWidth =
+    pdf.internal.pageSize.getWidth();
+
+  const pageHeight =
+    pdf.internal.pageSize.getHeight();
+
   const margin = 10;
 
-  const availableWidth = pageWidth - margin * 2;
-  const availableHeight = pageHeight - margin * 2;
-  const imageRatio = width / height;
+  const availableWidth =
+    pageWidth - margin * 2;
 
-  let renderWidth = availableWidth;
-  let renderHeight = renderWidth / imageRatio;
+  const availableHeight =
+    pageHeight - margin * 2;
+
+  const imageRatio =
+    width / height;
+
+  let renderWidth =
+    availableWidth;
+
+  let renderHeight =
+    renderWidth / imageRatio;
 
   if (renderHeight > availableHeight) {
-    renderHeight = availableHeight;
-    renderWidth = renderHeight * imageRatio;
+    renderHeight =
+      availableHeight;
+
+    renderWidth =
+      renderHeight * imageRatio;
   }
 
-  const x = (pageWidth - renderWidth) / 2;
-  const y = (pageHeight - renderHeight) / 2;
+  const x =
+    (pageWidth - renderWidth) / 2;
 
-  const canvas = document.createElement("canvas");
+  const y =
+    (pageHeight - renderHeight) / 2;
+
+  const canvas =
+    document.createElement("canvas");
+
   canvas.width = width;
   canvas.height = height;
 
-  const context = canvas.getContext("2d");
+  const context =
+    canvas.getContext("2d");
 
   if (!context) {
-    throw new Error("Não foi possível preparar a imagem para o PDF.");
+    throw new Error(
+      "Não foi possível preparar a imagem para o PDF."
+    );
   }
 
   context.fillStyle = "#ffffff";
-  context.fillRect(0, 0, width, height);
-  context.drawImage(image, 0, 0);
 
-  const imageData = canvas.toDataURL("image/jpeg", 0.92);
+  context.fillRect(
+    0,
+    0,
+    width,
+    height
+  );
+
+  context.drawImage(
+    image,
+    0,
+    0
+  );
+
+  const imageData =
+    canvas.toDataURL(
+      "image/jpeg",
+      0.92
+    );
 
   pdf.addImage(
     imageData,
@@ -465,27 +688,32 @@ function createPdfFromImage(image: HTMLImageElement): Blob {
 function loadImage(
   file: File
 ): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
+  return new Promise(
+    (resolve, reject) => {
+      const image =
+        new Image();
 
-    const url = URL.createObjectURL(file);
+      const url =
+        URL.createObjectURL(file);
 
-    image.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(image);
-    };
+      image.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(image);
+      };
 
-    image.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(
-        new Error(
-          "Não foi possível carregar a imagem."
-        )
-      );
-    };
+      image.onerror = () => {
+        URL.revokeObjectURL(url);
 
-    image.src = url;
-  });
+        reject(
+          new Error(
+            "Não foi possível carregar a imagem."
+          )
+        );
+      };
+
+      image.src = url;
+    }
+  );
 }
 
 function canvasToBlob(
@@ -493,23 +721,25 @@ function canvasToBlob(
   type: string,
   quality?: number
 ): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (blob) {
-          resolve(blob);
-        } else {
-          reject(
-            new Error(
-              "Não foi possível gerar o arquivo."
-            )
-          );
-        }
-      },
-      type,
-      quality
-    );
-  });
+  return new Promise(
+    (resolve, reject) => {
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(
+              new Error(
+                "Não foi possível gerar o arquivo."
+              )
+            );
+          }
+        },
+        type,
+        quality
+      );
+    }
+  );
 }
 
 function createFileName(
@@ -528,6 +758,22 @@ function createFileName(
       : originalName;
 
   return `${name}-convertido.${format.toLowerCase()}`;
+}
+
+function removeExtension(
+  fileName: string
+): string {
+  const lastDot =
+    fileName.lastIndexOf(".");
+
+  if (lastDot <= 0) {
+    return fileName;
+  }
+
+  return fileName.substring(
+    0,
+    lastDot
+  );
 }
 
 function getFileExtension(
@@ -559,9 +805,11 @@ function formatFileSize(
     "GB",
   ];
 
-  const index = Math.floor(
-    Math.log(bytes) / Math.log(1024)
-  );
+  const index =
+    Math.floor(
+      Math.log(bytes) /
+        Math.log(1024)
+    );
 
   return `${(
     bytes /
