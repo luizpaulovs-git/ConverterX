@@ -1,8 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import "./App.css";
 import jsPDF from "jspdf";
-import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { fetchFile } from "@ffmpeg/util";
 
 type ImageFormat = "PNG" | "JPG" | "WEBP" | "PDF";
 type FileType = "image" | "video";
@@ -21,9 +19,7 @@ interface ConvertedFile {
 
 function App() {
   const fileInput = useRef<HTMLInputElement>(null);
-  const ffmpegRef = useRef(new FFmpeg());
-
-  const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
+  const ffmpegRef = useRef<import("@ffmpeg/ffmpeg").FFmpeg | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [fileType, setFileType] = useState<FileType | null>(null);
   const [format, setFormat] = useState<ImageFormat>("PNG");
@@ -33,24 +29,6 @@ function App() {
   const [converted, setConverted] =
     useState<ConvertedFile | null>(null);
 
-  useEffect(() => {
-    async function loadFFmpeg() {
-      try {
-        const ffmpeg = ffmpegRef.current;
-
-        if (!ffmpeg.loaded) {
-          await ffmpeg.load();
-        }
-
-        setFfmpegLoaded(true);
-      } catch (error) {
-        console.error("Erro ao carregar FFmpeg:", error);
-        alert("Não foi possível carregar o conversor de vídeo.");
-      }
-    }
-
-    loadFFmpeg();
-  }, []);
 
   function selectFile(selectedFile: File | undefined) {
     if (!selectedFile) return;
@@ -139,11 +117,22 @@ function App() {
        */
 
       if (fileType === "video") {
-        if (!ffmpegLoaded) {
-          throw new Error("FFmpeg ainda não foi carregado.");
+        if (!ffmpegRef.current) {
+    const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+          const ffmpeg = new FFmpeg();
+
+          await ffmpeg.load();
+
+          ffmpegRef.current = ffmpeg;
         }
 
         const ffmpeg = ffmpegRef.current;
+
+        if (!ffmpeg) {
+          throw new Error("Não foi possível inicializar o FFmpeg.");
+        }
+
+        const { fetchFile } = await import("@ffmpeg/util");
 
         const inputName = "input-video";
         const outputName = "output.mp3";
@@ -326,23 +315,6 @@ function App() {
     }
 
     setConverted(null);
-  }
-
-  if (!ffmpegLoaded) {
-    return (
-      <main className="app">
-        <div
-          style={{
-            minHeight: "100vh",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          Carregando conversor...
-        </div>
-      </main>
-    );
   }
 
   return (
