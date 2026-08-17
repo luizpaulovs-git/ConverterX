@@ -939,3 +939,235 @@ footer span:first-child {
     padding: 20px;
   }
 }
+/* =========================================
+   CORREÇÃO DO LAYOUT PRINCIPAL
+   ========================================= */
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+/* Container principal */
+.app {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+/* Área principal do conteúdo */
+.main,
+main {
+  width: 100%;
+}
+
+/* Hero */
+.hero {
+  width: min(850px, calc(100% - 40px));
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Abas */
+.tabs {
+  width: min(850px, calc(100% - 40px));
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Área de upload */
+.upload-area {
+  width: min(850px, calc(100% - 40px));
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Conteúdo interno do upload */
+.upload-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+}
+
+/* Ícone */
+.upload-icon {
+  flex-shrink: 0;
+}
+
+/* Textos do upload */
+.upload-title,
+.upload-text,
+.upload-subtitle {
+  margin: 0;
+  text-align: center;
+}
+
+/* =========================================
+   RESPONSIVO
+   ========================================= */
+
+@media (max-width: 700px) {
+  .hero,
+  .tabs,
+  .upload-area {
+    width: calc(100% - 24px);
+  }
+}
+/* =========================================================
+   CORREÇÃO FINAL DO LAYOUT
+   ========================================================= */
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+/* APP */
+
+.app {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* HERO */
+
+.hero {
+  width: min(850px, calc(100% - 40px));
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* CONVERTER */
+
+.converter {
+  width: min(850px, calc(100% - 40px));
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* TABS */
+
+.converter-tabs {
+  width: 100%;
+}
+
+/* =========================================================
+   DROP ZONE — CORREÇÃO PRINCIPAL
+   ========================================================= */
+
+.drop-zone {
+  width: 100%;
+  min-height: 285px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  text-align: center;
+
+  padding: 30px;
+
+  overflow: hidden;
+}
+
+/*
+   O conteúdo interno precisa ficar
+   SEMPRE em coluna.
+*/
+
+.drop-zone > div,
+.drop-zone .upload-content {
+  width: 100%;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  text-align: center;
+
+  gap: 0;
+}
+
+/* Ícone */
+
+.drop-zone .upload-icon {
+  flex-shrink: 0;
+
+  margin: 0 0 18px;
+}
+
+/* Título */
+
+.drop-zone h2,
+.drop-zone .upload-title {
+  width: 100%;
+
+  margin: 0 0 8px;
+
+  text-align: center;
+}
+
+/* Texto */
+
+.drop-zone p,
+.drop-zone .upload-text,
+.drop-zone .upload-subtitle {
+  width: 100%;
+
+  margin: 0 0 20px;
+
+  text-align: center;
+}
+
+/* Formatos */
+
+.drop-zone .formats {
+  display: block;
+
+  width: 100%;
+
+  text-align: center;
+}
+
+/* =========================================================
+   RESPONSIVO
+   ========================================================= */
+
+@media (max-width: 650px) {
+  .app {
+    padding: 0 15px;
+  }
+
+  .hero,
+  .converter {
+    width: 100%;
+  }
+
+  .drop-zone {
+    min-height: 260px;
+    padding: 20px;
+  }
+}
