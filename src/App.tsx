@@ -4,6 +4,7 @@ import jsPDF from "jspdf";
 
 type ImageFormat = "PNG" | "JPG" | "WEBP" | "PDF";
 type FileType = "image" | "video";
+type ConverterMode = "file" | "youtube";
 
 interface ImageInfo {
   width: number;
@@ -19,22 +20,38 @@ interface ConvertedFile {
 
 function App() {
   const fileInput = useRef<HTMLInputElement>(null);
-  const ffmpegRef = useRef<import("@ffmpeg/ffmpeg").FFmpeg | null>(null);
+
+  const [converterMode, setConverterMode] =
+    useState<ConverterMode>("file");
+
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+
   const [file, setFile] = useState<File | null>(null);
-  const [fileType, setFileType] = useState<FileType | null>(null);
-  const [format, setFormat] = useState<ImageFormat>("PNG");
+
+  const [fileType, setFileType] =
+    useState<FileType | null>(null);
+
+  const [format, setFormat] =
+    useState<ImageFormat>("PNG");
+
   const [dragging, setDragging] = useState(false);
+
   const [converting, setConverting] = useState(false);
-  const [imageInfo, setImageInfo] = useState<ImageInfo | null>(null);
+
+  const [imageInfo, setImageInfo] =
+    useState<ImageInfo | null>(null);
+
   const [converted, setConverted] =
     useState<ConvertedFile | null>(null);
 
-
-  function selectFile(selectedFile: File | undefined) {
+  function selectFile(selectedFile?: File) {
     if (!selectedFile) return;
 
-    const isImage = selectedFile.type.startsWith("image/");
-    const isVideo = selectedFile.type.startsWith("video/");
+    const isImage =
+      selectedFile.type.startsWith("image/");
+
+    const isVideo =
+      selectedFile.type.startsWith("video/");
 
     if (!isImage && !isVideo) {
       alert("Formato de arquivo não suportado.");
@@ -65,7 +82,10 @@ function App() {
       })
       .catch(() => {
         setImageInfo(null);
-        alert("Não foi possível carregar essa imagem.");
+
+        alert(
+          "Não foi possível carregar essa imagem."
+        );
       });
   }
 
@@ -79,9 +99,12 @@ function App() {
     event: React.DragEvent<HTMLDivElement>
   ) {
     event.preventDefault();
+
     setDragging(false);
 
-    selectFile(event.dataTransfer.files?.[0]);
+    selectFile(
+      event.dataTransfer.files?.[0]
+    );
   }
 
   function removeFile() {
@@ -99,6 +122,16 @@ function App() {
     }
   }
 
+  function changeMode(mode: ConverterMode) {
+    setConverterMode(mode);
+
+    if (mode === "youtube") {
+      removeFile();
+    }
+
+    setYoutubeUrl("");
+  }
+
   async function convertFile() {
     if (!file || !fileType) return;
 
@@ -111,114 +144,74 @@ function App() {
       }
 
       /*
-       * =========================
+       * =================================
        * VÍDEO → MP3
-       * =========================
+       * =================================
        */
 
       if (fileType === "video") {
-        if (!ffmpegRef.current) {
-    const { FFmpeg } = await import("@ffmpeg/ffmpeg");
-          const ffmpeg = new FFmpeg();
+        const formData = new FormData();
 
-          await ffmpeg.load();
+        formData.append("file", file);
 
-          ffmpegRef.current = ffmpeg;
-        }
-
-        const ffmpeg = ffmpegRef.current;
-
-        if (!ffmpeg) {
-          throw new Error("Não foi possível inicializar o FFmpeg.");
-        }
-
-        const { fetchFile } = await import("@ffmpeg/util");
-
-        const inputName = "input-video";
-        const outputName = "output.mp3";
-
-        const inputData = await fetchFile(file);
-
-        await ffmpeg.writeFile(inputName, inputData);
-
-        await ffmpeg.exec([
-          "-i",
-          inputName,
-          "-vn",
-          "-acodec",
-          "libmp3lame",
-          "-q:a",
-          "2",
-          outputName,
-        ]);
-
-        const outputData =
-          await ffmpeg.readFile(outputName);
-
-        /*
-         * Converte o resultado do FFmpeg
-         * para um ArrayBuffer compatível
-         * com o Blob do TypeScript.
-         */
-
-        let audioBuffer: ArrayBuffer;
-
-        if (typeof outputData === "string") {
-          audioBuffer = new TextEncoder()
-            .encode(outputData)
-            .buffer;
-        } else {
-          const audioBytes = new Uint8Array(outputData);
-          const buffer = new ArrayBuffer(
-            audioBytes.byteLength
-          );
-
-          new Uint8Array(buffer).set(audioBytes);
-
-          audioBuffer = buffer;
-        }
-
-        const audioBlob = new Blob(
-          [audioBuffer],
+        const response = await fetch(
+          "http://localhost:3001/api/video-to-mp3",
           {
-            type: "audio/mpeg",
+            method: "POST",
+            body: formData,
           }
         );
 
+        if (!response.ok) {
+          const data =
+            await response
+              .json()
+              .catch(() => null);
+
+          throw new Error(
+            data?.error ||
+              "Erro ao converter o vídeo."
+          );
+        }
+
+        const blob =
+          await response.blob();
+
         const url =
-          URL.createObjectURL(audioBlob);
+          URL.createObjectURL(blob);
 
         const originalName =
           removeExtension(file.name);
 
         setConverted({
-          blob: audioBlob,
+          blob,
           url,
-          size: audioBlob.size,
+          size: blob.size,
           name: `${originalName}-audio.mp3`,
         });
-
-        await ffmpeg.deleteFile(inputName);
-        await ffmpeg.deleteFile(outputName);
 
         return;
       }
 
       /*
-       * =========================
+       * =================================
        * IMAGEM
-       * =========================
+       * =================================
        */
 
-      const image = await loadImage(file);
+      const image =
+        await loadImage(file);
 
       let blob: Blob;
 
       if (format === "PDF") {
-        blob = createPdfFromImage(image);
+        blob =
+          createPdfFromImage(image);
       } else {
         const canvas =
-          document.createElement("canvas");
+          document.createElement(
+            "canvas"
+          );
 
         const context =
           canvas.getContext("2d");
@@ -229,11 +222,15 @@ function App() {
           );
         }
 
-        canvas.width = image.naturalWidth;
-        canvas.height = image.naturalHeight;
+        canvas.width =
+          image.naturalWidth;
+
+        canvas.height =
+          image.naturalHeight;
 
         if (format === "JPG") {
-          context.fillStyle = "#ffffff";
+          context.fillStyle =
+            "#ffffff";
 
           context.fillRect(
             0,
@@ -243,7 +240,11 @@ function App() {
           );
         }
 
-        context.drawImage(image, 0, 0);
+        context.drawImage(
+          image,
+          0,
+          0
+        );
 
         const mimeType =
           format === "PNG"
@@ -257,17 +258,18 @@ function App() {
             ? undefined
             : 0.92;
 
-        blob = await canvasToBlob(
-          canvas,
-          mimeType,
-          quality
-        );
+        blob =
+          await canvasToBlob(
+            canvas,
+            mimeType,
+            quality
+          );
       }
 
       const url =
         URL.createObjectURL(blob);
 
-      const convertedFile: ConvertedFile = {
+      setConverted({
         blob,
         url,
         size: blob.size,
@@ -275,19 +277,19 @@ function App() {
           file.name,
           format
         ),
-      };
-
-      setConverted(convertedFile);
+      });
     } catch (error) {
       console.error(error);
 
       if (fileType === "video") {
         alert(
-          "Ocorreu um erro ao converter o vídeo para MP3."
+          error instanceof Error
+            ? error.message
+            : "Erro ao converter o vídeo."
         );
       } else {
         alert(
-          "Ocorreu um erro ao converter a imagem."
+          "Erro ao converter a imagem."
         );
       }
     } finally {
@@ -301,36 +303,145 @@ function App() {
     const link =
       document.createElement("a");
 
-    link.href = converted.url;
-    link.download = converted.name;
+    link.href =
+      converted.url;
+
+    link.download =
+      converted.name;
 
     document.body.appendChild(link);
+
     link.click();
+
     link.remove();
   }
 
   function resetConversion() {
     if (converted) {
-      URL.revokeObjectURL(converted.url);
+      URL.revokeObjectURL(
+        converted.url
+      );
     }
 
     setConverted(null);
   }
 
+  async function handleYoutubeConvert() {
+    if (!youtubeUrl.trim()) {
+      alert(
+        "Cole um link do YouTube."
+      );
+
+      return;
+    }
+
+    try {
+      setConverting(true);
+
+      const response =
+        await fetch(
+          "http://localhost:3001/api/youtube-to-mp3",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              url: youtubeUrl.trim(),
+            }),
+          }
+        );
+
+      if (!response.ok) {
+        let message =
+          "Não foi possível converter o vídeo.";
+
+        try {
+          const data =
+            await response.json();
+
+          if (data?.error) {
+            message =
+              data.error;
+          }
+        } catch {
+          // Ignora erro ao ler JSON
+        }
+
+        throw new Error(message);
+      }
+
+      const blob =
+        await response.blob();
+
+      const url =
+        URL.createObjectURL(blob);
+
+      const contentDisposition =
+        response.headers.get(
+          "Content-Disposition"
+        );
+
+      let fileName =
+        "youtube-audio.mp3";
+
+      if (contentDisposition) {
+        const match =
+          contentDisposition.match(
+            /filename="?([^"]+)"?/
+          );
+
+        if (match?.[1]) {
+          fileName =
+            match[1];
+        }
+      }
+
+      setConverted({
+        blob,
+        url,
+        size: blob.size,
+        name: fileName,
+      });
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Ocorreu um erro ao converter o vídeo."
+      );
+    } finally {
+      setConverting(false);
+    }
+  }
+
   return (
     <main className="app">
+
       <header className="header">
+
         <div className="logo">
-          <span className="logo-icon">C</span>
-          <span>ConverterX</span>
+
+          <span className="logo-icon">
+            C
+          </span>
+
+          <span>
+            ConverterX
+          </span>
+
         </div>
 
         <span className="status">
           Conversor online
         </span>
+
       </header>
 
       <section className="hero">
+
         <div className="badge">
           SIMPLES • RÁPIDO • GRATUITO
         </div>
@@ -338,280 +449,501 @@ function App() {
         <h1>
           Converta seus arquivos
           <br />
-          <span>de forma simples.</span>
+
+          <span>
+            de forma simples.
+          </span>
         </h1>
 
         <p>
-          Converta imagens e vídeos diretamente no navegador.
+          Converta imagens, vídeos
+          e links do YouTube.
         </p>
+
       </section>
 
       <section className="converter">
-        {!file ? (
-          <div
-            className={`drop-zone ${
-              dragging ? "dragging" : ""
-            }`}
-            onDragOver={(event) => {
-              event.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() =>
-              setDragging(false)
+
+        <div className="converter-tabs">
+
+          <button
+            type="button"
+            className={
+              converterMode === "file"
+                ? "active"
+                : ""
             }
-            onDrop={handleDrop}
             onClick={() =>
-              fileInput.current?.click()
+              changeMode("file")
             }
           >
-            <input
-              ref={fileInput}
-              type="file"
-              accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime"
-              hidden
-              onChange={handleFileChange}
-            />
+            🖼️ Arquivos
+          </button>
 
-            <div className="upload-icon">
-              ↑
-            </div>
+          <button
+            type="button"
+            className={
+              converterMode === "youtube"
+                ? "active"
+                : ""
+            }
+            onClick={() =>
+              changeMode("youtube")
+            }
+          >
+            🔗 YouTube → MP3
+          </button>
 
-            <h2>
-              Arraste seu arquivo aqui
-            </h2>
+        </div>
 
-            <p>
-              ou clique para selecionar um arquivo
-            </p>
+        {converterMode === "file" && (
+          <>
 
-            <span className="formats">
-              PNG • JPG • WEBP • MP4 • WEBM • MOV
-            </span>
-          </div>
-        ) : (
-          <div className="workspace">
-            <div className="preview-card">
-              <div className="preview-header">
-                <span>
-                  Visualização
+            {!file ? (
+
+              <div
+                className={`drop-zone ${
+                  dragging
+                    ? "dragging"
+                    : ""
+                }`}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() =>
+                  setDragging(false)
+                }
+                onDrop={handleDrop}
+                onClick={() =>
+                  fileInput.current?.click()
+                }
+              >
+
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime"
+                  hidden
+                  onChange={
+                    handleFileChange
+                  }
+                />
+
+                <div className="upload-icon">
+                  ↑
+                </div>
+
+                <h2>
+                  Arraste seu arquivo aqui
+                </h2>
+
+                <p>
+                  ou clique para selecionar
+                  um arquivo
+                </p>
+
+                <span className="formats">
+                  PNG • JPG • WEBP • MP4 • WEBM • MOV
                 </span>
 
-                <button
-                  className="change-button"
-                  onClick={() =>
-                    fileInput.current?.click()
-                  }
-                >
-                  Trocar arquivo
-                </button>
               </div>
 
-              <div className="preview">
-                {fileType === "image" ? (
-                  <img
-                    src={URL.createObjectURL(file)}
-                    alt="Pré-visualização"
-                  />
-                ) : (
-                  <video
-                    src={URL.createObjectURL(file)}
-                    controls
-                    style={{
-                      maxWidth: "100%",
-                      maxHeight: "400px",
-                    }}
-                  />
-                )}
-              </div>
-            </div>
+            ) : (
 
-            <div className="file-card">
-              <div className="file-main">
-                <div className="file-icon">
-                  {fileType === "video"
-                    ? "▶"
-                    : "✓"}
-                </div>
+              <div className="workspace">
 
-                <div className="file-info">
-                  <strong>
-                    {file.name}
-                  </strong>
+                <div className="preview-card">
 
-                  <span>
-                    {formatFileSize(file.size)}
+                  <div className="preview-header">
 
-                    {imageInfo &&
-                      ` • ${imageInfo.width} × ${imageInfo.height}px`}
-                  </span>
-                </div>
-
-                <button
-                  className="remove-button"
-                  onClick={removeFile}
-                >
-                  ×
-                </button>
-              </div>
-
-              {fileType === "image" ? (
-                <div className="conversion-flow">
-                  <div className="format-box">
-                    <span>ORIGINAL</span>
-
-                    <strong>
-                      {getFileExtension(
-                        file.name
-                      )}
-                    </strong>
-                  </div>
-
-                  <div className="arrow">
-                    →
-                  </div>
-
-                  <div className="format-box">
                     <span>
-                      CONVERTER PARA
+                      Visualização
                     </span>
 
-                    <select
-                      value={format}
-                      onChange={(event) =>
-                        setFormat(
-                          event.target
-                            .value as ImageFormat
-                        )
+                    <button
+                      type="button"
+                      className="change-button"
+                      onClick={() =>
+                        fileInput.current?.click()
                       }
                     >
-                      <option value="PNG">
-                        PNG
-                      </option>
+                      Trocar arquivo
+                    </button>
 
-                      <option value="JPG">
-                        JPG
-                      </option>
-
-                      <option value="WEBP">
-                        WEBP
-                      </option>
-
-                      <option value="PDF">
-                        PDF
-                      </option>
-                    </select>
                   </div>
+
+                  <div className="preview">
+
+                    {fileType ===
+                    "image" ? (
+
+                      <img
+                        src={URL.createObjectURL(
+                          file
+                        )}
+                        alt="Pré-visualização"
+                      />
+
+                    ) : (
+
+                      <video
+                        src={URL.createObjectURL(
+                          file
+                        )}
+                        controls
+                        style={{
+                          maxWidth:
+                            "100%",
+                          maxHeight:
+                            "400px",
+                        }}
+                      />
+
+                    )}
+
+                  </div>
+
                 </div>
-              ) : (
-                <div className="conversion-flow">
-                  <div className="format-box">
-                    <span>ORIGINAL</span>
 
-                    <strong>
-                      {getFileExtension(
-                        file.name
-                      )}
-                    </strong>
-                  </div>
+                <div className="file-card">
 
-                  <div className="arrow">
-                    →
-                  </div>
+                  <div className="file-main">
 
-                  <div className="format-box">
-                    <span>
-                      CONVERTER PARA
-                    </span>
+                    <div className="file-icon">
 
-                    <strong>MP3</strong>
-                  </div>
-                </div>
-              )}
+                      {fileType ===
+                      "video"
+                        ? "▶"
+                        : "✓"}
 
-              {!converted ? (
-                <button
-                  className="convert-button"
-                  disabled={converting}
-                  onClick={convertFile}
-                >
-                  {converting
-                    ? "Convertendo..."
-                    : fileType === "video"
-                      ? "Extrair áudio"
-                      : "Converter imagem"}
-
-                  {!converting && (
-                    <span>→</span>
-                  )}
-                </button>
-              ) : (
-                <div className="result">
-                  <div className="result-info">
-                    <div className="success-icon">
-                      ✓
                     </div>
 
-                    <div>
+                    <div className="file-info">
+
                       <strong>
-                        Conversão concluída!
+                        {file.name}
                       </strong>
 
                       <span>
+
                         {formatFileSize(
                           file.size
-                        )}{" "}
-                        →{" "}
-                        {formatFileSize(
-                          converted.size
                         )}
+
+                        {imageInfo &&
+                          ` • ${imageInfo.width} × ${imageInfo.height}px`}
+
                       </span>
+
                     </div>
-                  </div>
-
-                  <div className="result-actions">
-                    <button
-                      className="secondary-button"
-                      onClick={
-                        resetConversion
-                      }
-                    >
-                      Converter novamente
-                    </button>
 
                     <button
-                      className="download-button"
+                      type="button"
+                      className="remove-button"
                       onClick={
-                        downloadConverted
+                        removeFile
                       }
                     >
-                      Baixar arquivo
-                      <span>↓</span>
+                      ×
                     </button>
+
                   </div>
+
+                  {fileType ===
+                  "image" ? (
+
+                    <div className="conversion-flow">
+
+                      <div className="format-box">
+
+                        <span>
+                          ORIGINAL
+                        </span>
+
+                        <strong>
+                          {getFileExtension(
+                            file.name
+                          )}
+                        </strong>
+
+                      </div>
+
+                      <div className="arrow">
+                        →
+                      </div>
+
+                      <div className="format-box">
+
+                        <span>
+                          CONVERTER PARA
+                        </span>
+
+                        <select
+                          value={
+                            format
+                          }
+                          onChange={(
+                            event
+                          ) =>
+                            setFormat(
+                              event.target
+                                .value as ImageFormat
+                            )
+                          }
+                        >
+
+                          <option value="PNG">
+                            PNG
+                          </option>
+
+                          <option value="JPG">
+                            JPG
+                          </option>
+
+                          <option value="WEBP">
+                            WEBP
+                          </option>
+
+                          <option value="PDF">
+                            PDF
+                          </option>
+
+                        </select>
+
+                      </div>
+
+                    </div>
+
+                  ) : (
+
+                    <div className="conversion-flow">
+
+                      <div className="format-box">
+
+                        <span>
+                          ORIGINAL
+                        </span>
+
+                        <strong>
+                          {getFileExtension(
+                            file.name
+                          )}
+                        </strong>
+
+                      </div>
+
+                      <div className="arrow">
+                        →
+                      </div>
+
+                      <div className="format-box">
+
+                        <span>
+                          CONVERTER PARA
+                        </span>
+
+                        <strong>
+                          MP3
+                        </strong>
+
+                      </div>
+
+                    </div>
+
+                  )}
+
+                  {!converted ? (
+
+                    <button
+                      type="button"
+                      className="convert-button"
+                      disabled={
+                        converting
+                      }
+                      onClick={
+                        convertFile
+                      }
+                    >
+
+                      {converting
+                        ? "Convertendo..."
+                        : fileType ===
+                            "video"
+                          ? "Extrair áudio"
+                          : "Converter imagem"}
+
+                      {!converting && (
+                        <span>
+                          →
+                        </span>
+                      )}
+
+                    </button>
+
+                  ) : (
+
+                    <div className="result">
+
+                      <div className="result-info">
+
+                        <div className="success-icon">
+                          ✓
+                        </div>
+
+                        <div>
+
+                          <strong>
+                            Conversão concluída!
+                          </strong>
+
+                          <span>
+
+                            {formatFileSize(
+                              file.size
+                            )}
+
+                            {" → "}
+
+                            {formatFileSize(
+                              converted.size
+                            )}
+
+                          </span>
+
+                        </div>
+
+                      </div>
+
+                      <div className="result-actions">
+
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={
+                            resetConversion
+                          }
+                        >
+                          Converter novamente
+                        </button>
+
+                        <button
+                          type="button"
+                          className="download-button"
+                          onClick={
+                            downloadConverted
+                          }
+                        >
+                          Baixar arquivo
+
+                          <span>
+                            ↓
+                          </span>
+
+                        </button>
+
+                      </div>
+
+                    </div>
+
+                  )}
+
                 </div>
-              )}
-            </div>
-          </div>
+
+              </div>
+
+            )}
+
+            {file && (
+
+              <input
+                ref={fileInput}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime"
+                hidden
+                onChange={
+                  handleFileChange
+                }
+              />
+
+            )}
+
+          </>
         )}
 
-        {file && (
-          <input
-            ref={fileInput}
-            type="file"
-            accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime"
-            hidden
-            onChange={handleFileChange}
-          />
+        {converterMode ===
+          "youtube" && (
+
+          <div className="youtube-converter">
+
+            <div className="youtube-icon">
+              ▶
+            </div>
+
+            <h2>
+              YouTube → MP3
+            </h2>
+
+            <p>
+              Cole o link de um vídeo
+              do YouTube para extrair
+              o áudio.
+            </p>
+
+            <input
+              type="text"
+              value={youtubeUrl}
+              onChange={(event) =>
+                setYoutubeUrl(
+                  event.target.value
+                )
+              }
+              placeholder="Cole aqui o link do YouTube..."
+            />
+
+            <button
+              type="button"
+              className="convert-button"
+              disabled={
+                !youtubeUrl.trim() ||
+                converting
+              }
+              onClick={
+                handleYoutubeConvert
+              }
+            >
+
+              {converting
+                ? "Convertendo..."
+                : "Converter para MP3"}
+
+              {!converting && (
+                <span>
+                  →
+                </span>
+              )}
+
+            </button>
+
+          </div>
+
         )}
+
       </section>
 
       <footer>
-        <span>ConverterX</span>
 
         <span>
-          Um projeto desenvolvido por Luiz Paulo
+          ConverterX
         </span>
+
+        <span>
+          Um projeto desenvolvido por
+          Luiz Paulo
+        </span>
+
       </footer>
+
     </main>
   );
 }
@@ -619,8 +951,12 @@ function App() {
 function createPdfFromImage(
   image: HTMLImageElement
 ): Blob {
-  const width = image.naturalWidth;
-  const height = image.naturalHeight;
+
+  const width =
+    image.naturalWidth;
+
+  const height =
+    image.naturalHeight;
 
   const orientation =
     width > height
@@ -643,10 +979,12 @@ function createPdfFromImage(
   const margin = 10;
 
   const availableWidth =
-    pageWidth - margin * 2;
+    pageWidth -
+    margin * 2;
 
   const availableHeight =
-    pageHeight - margin * 2;
+    pageHeight -
+    margin * 2;
 
   const imageRatio =
     width / height;
@@ -655,27 +993,42 @@ function createPdfFromImage(
     availableWidth;
 
   let renderHeight =
-    renderWidth / imageRatio;
+    renderWidth /
+    imageRatio;
 
-  if (renderHeight > availableHeight) {
+  if (
+    renderHeight >
+    availableHeight
+  ) {
+
     renderHeight =
       availableHeight;
 
     renderWidth =
-      renderHeight * imageRatio;
+      renderHeight *
+      imageRatio;
   }
 
   const x =
-    (pageWidth - renderWidth) / 2;
+    (pageWidth -
+      renderWidth) /
+    2;
 
   const y =
-    (pageHeight - renderHeight) / 2;
+    (pageHeight -
+      renderHeight) /
+    2;
 
   const canvas =
-    document.createElement("canvas");
+    document.createElement(
+      "canvas"
+    );
 
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width =
+    width;
+
+  canvas.height =
+    height;
 
   const context =
     canvas.getContext("2d");
@@ -686,7 +1039,8 @@ function createPdfFromImage(
     );
   }
 
-  context.fillStyle = "#ffffff";
+  context.fillStyle =
+    "#ffffff";
 
   context.fillRect(
     0,
@@ -724,21 +1078,32 @@ function createPdfFromImage(
 function loadImage(
   file: File
 ): Promise<HTMLImageElement> {
+
   return new Promise(
     (resolve, reject) => {
+
       const image =
         new Image();
 
       const url =
-        URL.createObjectURL(file);
+        URL.createObjectURL(
+          file
+        );
 
       image.onload = () => {
-        URL.revokeObjectURL(url);
+
+        URL.revokeObjectURL(
+          url
+        );
+
         resolve(image);
       };
 
       image.onerror = () => {
-        URL.revokeObjectURL(url);
+
+        URL.revokeObjectURL(
+          url
+        );
 
         reject(
           new Error(
@@ -757,10 +1122,13 @@ function canvasToBlob(
   type: string,
   quality?: number
 ): Promise<Blob> {
+
   return new Promise(
     (resolve, reject) => {
+
       canvas.toBlob(
         (blob) => {
+
           if (blob) {
             resolve(blob);
           } else {
@@ -770,10 +1138,12 @@ function canvasToBlob(
               )
             );
           }
+
         },
         type,
         quality
       );
+
     }
   );
 }
@@ -782,8 +1152,11 @@ function createFileName(
   originalName: string,
   format: ImageFormat
 ): string {
+
   const lastDot =
-    originalName.lastIndexOf(".");
+    originalName.lastIndexOf(
+      "."
+    );
 
   const name =
     lastDot > 0
@@ -799,8 +1172,11 @@ function createFileName(
 function removeExtension(
   fileName: string
 ): string {
+
   const lastDot =
-    fileName.lastIndexOf(".");
+    fileName.lastIndexOf(
+      "."
+    );
 
   if (lastDot <= 0) {
     return fileName;
@@ -815,8 +1191,11 @@ function removeExtension(
 function getFileExtension(
   fileName: string
 ): string {
+
   const lastDot =
-    fileName.lastIndexOf(".");
+    fileName.lastIndexOf(
+      "."
+    );
 
   if (lastDot === -1) {
     return "ARQUIVO";
@@ -830,6 +1209,7 @@ function getFileExtension(
 function formatFileSize(
   bytes: number
 ): string {
+
   if (bytes === 0) {
     return "0 Bytes";
   }
@@ -849,7 +1229,10 @@ function formatFileSize(
 
   return `${(
     bytes /
-    Math.pow(1024, index)
+    Math.pow(
+      1024,
+      index
+    )
   ).toFixed(1)} ${units[index]}`;
 }
 
